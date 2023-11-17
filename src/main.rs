@@ -8,6 +8,7 @@ use winit::{
 mod input;
 mod gpu;
 mod sprites;
+mod animation;
 use sprites::{GPUCamera, SpriteOption, GPUSprite};
 
 
@@ -31,8 +32,8 @@ compile_error!("Can't choose both vbuf and uniform sprite features");
 // pub const CELL_HEIGHT: f32 = WINDOW_HEIGHT / NUMBER_OF_CELLS as f32;
 
 
-pub const WINDOW_WIDTH: f32 = 1024.0;
-pub const WINDOW_HEIGHT: f32 = 768.0;
+pub const WINDOW_WIDTH: f32 = 640.0;
+pub const WINDOW_HEIGHT: f32 = 1280.0;
 
 pub const DESIRED_COLUMNS: i32 = 3;
 pub const DESIRED_ROWS: i32 = 9;
@@ -41,12 +42,20 @@ pub const NUMBER_OF_CELLS: i32 = DESIRED_COLUMNS * DESIRED_ROWS;
 
 pub const CELL_WIDTH: f32 = WINDOW_WIDTH / DESIRED_COLUMNS as f32;
 pub const CELL_HEIGHT: f32 = WINDOW_HEIGHT / DESIRED_ROWS as f32;
+pub const CELL_OFFSET: f32 = (WINDOW_WIDTH / 2.0) - CELL_WIDTH;
+pub const MID: f32 = WINDOW_WIDTH / 2.0;
+pub const COLUMN_LOCS: [f32; 3] = [MID - CELL_WIDTH, MID, MID + CELL_WIDTH];
+
+pub const ANIMATION_SPEED: f32 = 0.1;  // Adjust the speed of the animation
 
 async fn run(event_loop: EventLoop<()>, window: Window) {
 
     log::info!("Use sprite mode {:?}", SPRITES);
     
     let mut gpu = gpu::WGPU::new(&window).await;
+    let mut frame_count: u32 = 0;
+    let mut timer = 0;
+    let mut frame_switch = true;
     
     // Load the shaders from disk
     let shader = gpu.device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -235,7 +244,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
     });
 
     gpu.surface.configure(&gpu.device, &gpu.config);
-    let path_sprites = Path::new("content/sprites.png");
+    let path_sprites = Path::new("../content/sprites.png");
     let (sprite_tex, _sprite_img) = gpu.load_texture(path_sprites, None)
         .await
         .expect("Couldn't load spritesheet texture");
@@ -270,7 +279,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
     let mut sprites: Vec<GPUSprite> = sprites::create_sprites();
 
     // Initialize sprite position within the grid
-    let mut sprite_position: [f32; 2] = [512.0, 0.0];  
+    let mut sprite_position: [f32; 2] = [WINDOW_WIDTH/2.0, 0.0];  
 
     const SPRITE_UNIFORM_SIZE: u64 = 512 * mem::size_of::<GPUSprite>() as u64;
     let buffer_sprite = gpu.device.create_buffer(&wgpu::BufferDescriptor {
@@ -313,7 +322,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
     };
 
     // create background stuff
-    let path_bgnd = Path::new("content/space.jpeg");
+    let path_bgnd = Path::new("../content/space.jpeg");
     let (tex_bgnd, _over_image) = gpu.load_texture(path_bgnd,None)
         .await
         .expect("Couldn't load space img");
@@ -344,14 +353,14 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
     let mut you_won = false;
     let mut show_end_screen = false;
 
-    let path_win = Path::new("content/youWin.png");
+    let path_win = Path::new("../content/youWin.png");
 
    //LOAD TEXTURE
    let (tex_win, _win_image) = gpu.load_texture(path_win,None)
         .await
         .expect("Couldn't load game over img");
     
-    let path_over = Path::new("content/gameOver.png");
+    let path_over = Path::new("../content/gameOver.png");
     let (tex_over, _over_image) = gpu.load_texture(path_over,None)
         .await
         .expect("Couldn't load game over img");
@@ -421,9 +430,11 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                     // let mut direction_switch_counter = 0;
                     let mut current_direction = 0; // Start with direction 0 (right)
 
-                    for i in 0..sprites.len() {
-                        sprites[i].screen_region[0] = i as f32 * CELL_WIDTH; // Each sprite in a separate column
-                        sprites[i].screen_region[1] = 0.0; // Start at the top of the screen
+                    for sprite in sprites.iter_mut() {
+                        let random_index = rand::thread_rng().gen_range(0..COLUMN_LOCS.len());
+                        let random_col = COLUMN_LOCS[random_index];
+                        sprite.screen_region[0] = random_col;
+                        sprite.screen_region[1] = 0.0; // Start at the top of the screen
                     }
 
                     // Update sprite positions based on direction
@@ -435,63 +446,8 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                             // Reset to the top of the screen if at the bottom
                             sprites[i].screen_region[1] = 0.0;
                         }
-                    
-                    // for i in 1..sprites.len() {
-                    //     if current_direction == 0 {
-                    //         // If direction is 0 (right), move right
-                    //         if sprites[i].screen_region[1] < WINDOW_HEIGHT {
-                    //             sprites[i].screen_region[1] += 1.0;
-                    //         } else {
-                    //             sprites[i].screen_region[1] = 0.0;
-                    //         }
-                    //     } else {
-                    //         // If direction is 1 (left), move left
-                    //         if sprites[i].screen_region[1] > 0.0 {
-                    //             sprites[i].screen_region[1] -= 1.0;
-                    //         } else {
-                    //             sprites[i].screen_region[1] = WINDOW_HEIGHT;
-                    //         }
-                    //     }
 
-                        // direction_switch_counter += 1;
-
-                        // if direction_switch_counter == 9 {
-                        //     // Switch the direction after every 3 sprites
-                        //     direction_switch_counter = 0;
-                        //     current_direction = 1 - current_direction; // Toggle between 0 and 1
-                        // }
                     }
-
-
-                        // if even move right
-                        // if i%2==0{
-                        //     if sprites[i].screen_region[0] < WINDOW_WIDTH{
-                        //         sprites[i].screen_region[0] += 5.0;
-                        //     }else{
-                        //         let num = rand::thread_rng().gen_range(1..10); 
-                        //         sprites[i].screen_region[0] = 0.0;
-                        //         sprites[i].screen_region[1] =  num as f32 * CELL_HEIGHT;
-                        //     }
-                        // } else { // odd move left
-                        //     if sprites[i].screen_region[0] > 0.0{
-                        //         sprites[i].screen_region[0] -= 5.0;
-                        //     } else {
-                        //         let num = rand::thread_rng().gen_range(1..10); 
-                        //         sprites[i].screen_region[0] = WINDOW_WIDTH;
-                        //         sprites[i].screen_region[1] =  num as f32 * CELL_HEIGHT;
-                        //     }
-                        // }
-                        
-                    // }
-
-                    // for i in 1..sprites.len() {
-                    //     for (cx, cy) in corners.iter(){
-                    //         if cx >= &sprites[i].screen_region[0] && cx <= &(sprites[i].screen_region[0] + sprites[0].screen_region[2]) && cy >= &sprites[i].screen_region[1] && cy <= &(sprites[i].screen_region[1] + sprites[0].screen_region[3]) {
-                    //             print!("COLLIDED");
-                    //             game_over = true;  
-                    //         }
-                    //     }
-                    // }
                     
                     // move sprite based on input
                     sprite_position = sprites::move_sprite_input(&input, sprite_position);
@@ -569,6 +525,14 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                         rpass.set_pipeline(&render_pipeline_full);
                         rpass.set_bind_group(0, &texture_bind_group_bgnd, &[]);
                         rpass.draw(0..6, 0..1);
+
+                        // Calculate the index of the current frame in the animation loop
+                        // let current_frame: usize = (frame_count as f32 * ANIMATION_SPEED) as usize % 2;
+
+                        // Update the sheet_region for your character sprite based on the current frame
+                        sprites[0].sheet_region = [frame_count as f32 * 0.5, 0.750, 0.5, 0.250];
+
+                        // draw other sprites
                         {
                             rpass.set_pipeline(&render_pipeline);
                             if SPRITES == SpriteOption::VertexBuffer {
@@ -576,12 +540,18 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                             }
                             rpass.set_bind_group(0, &sprite_bind_group, &[]);
                             rpass.set_bind_group(1, &texture_bind_group, &[]);
-                            // draw two triangles per sprite, and sprites-many sprites.
-                            // this uses instanced drawing, but it would also be okay
-                            // to draw 6 * sprites.len() vertices and use modular arithmetic
-                            // to figure out which sprite we're drawing.
                             rpass.draw(0..6, 0..(sprites.len() as u32));
                         }
+
+                        // change what the timer is divided by to make the guy run faster
+                        if timer % 8 == 0 {
+                            frame_count += 1;
+                            frame_switch = !frame_switch;
+                        }
+                        else if frame_switch {
+                            frame_count = 0
+                        }
+                        timer += 1;
                     }
                 }
                 gpu.queue.submit(Some(encoder.finish()));
@@ -619,7 +589,11 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
 
 fn main() {
     let event_loop = EventLoop::new();
-    let window = winit::window::Window::new(&event_loop).unwrap();
+    let window = winit::window::WindowBuilder::new()
+        .with_inner_size(winit::dpi::LogicalSize::new(WINDOW_WIDTH, WINDOW_HEIGHT))
+        .build(&event_loop)
+        .unwrap();
+    println!("Window dimensions: {:?}", window.inner_size());
     #[cfg(not(target_arch = "wasm32"))]
     {
         env_logger::init();
