@@ -35,28 +35,28 @@ pub fn create_sprites() ->  Vec<GPUSprite> {
         sheet_region: [0.0, 0.50, 0.5, 0.250], // guy
     }];
 
-    for y in (2..NUMBER_OF_CELLS - 1).step_by(2) {
-        // Create a vertical line of coins, cars, and potholes
+    // for y in (0..NUMBER_OF_CELLS - 1) {
+    //     // Create a vertical line of coins, cars, and potholes
 
         for &x in COLUMN_LOCS.iter() {
             // COINS
             sprites.push(GPUSprite {
-                screen_region: [x, y as f32, 50.0 * warp, 50.0],
+                screen_region: [x, WINDOW_HEIGHT - 40 as f32, 50.0 * warp, 50.0],
                 sheet_region: [0.0, 0.50, 0.5, 0.250], // coin
             });
 
             // CAR
             sprites.push(GPUSprite {
-                screen_region: [x, y as f32 + CELL_HEIGHT, 50.0 * warp, 50.0],
+                screen_region: [x, WINDOW_HEIGHT - 40 as f32 + CELL_HEIGHT, 50.0 * warp, 50.0],
                 sheet_region: [0.0, 0.0, 0.5, 0.250], // car
             });
 
             // POT HOLES
             sprites.push(GPUSprite {
-                screen_region: [x,  y as f32 + 2.0 * CELL_HEIGHT, 90.0 * warp, 90.0],
+                screen_region: [x,  WINDOW_HEIGHT- 40 as f32 + (2.0 * CELL_HEIGHT), 90.0 * warp, 90.0],
                 sheet_region: [0.5, 0.50, 1.0, 0.250], // pothole
             });
-        }
+        // }
     }
     sprites
 

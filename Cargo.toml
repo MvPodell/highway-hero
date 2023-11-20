@@ -6,8 +6,10 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bytemuck = {version="1.13.1",features=["derive"]}
+bytemuck = { version = "1.13.1", features = ["derive"] }
 env_logger = "0.10"
+frenderer = "0.7.3"
+glam = {version="0.24", features=["bytemuck","rand","serde","debug-glam-assert","std"]}
 image = "0.24"
 log = "0.4"
 pollster = "0.3"
@@ -31,9 +33,14 @@ web-sys = {version="0.3.64", features = [
     "CanvasRenderingContext2d"
 ] }
 
-
 [features]
 uniforms = []
 vbuf = []
 default = []
 webgl = ["wgpu/webgl"]
+
+[workspace]
+members = [
+    "src/main.rs",
+    "src/pipeline.rs",
+]

@@ -10,6 +10,7 @@ mod gpu;
 mod sprites;
 mod animation;
 use sprites::{GPUCamera, SpriteOption, GPUSprite};
+mod pipeline;
 
 
 #[cfg(all(not(feature = "uniforms"), not(feature = "vbuf")))]
@@ -45,8 +46,10 @@ pub const CELL_HEIGHT: f32 = WINDOW_HEIGHT / DESIRED_ROWS as f32;
 pub const CELL_OFFSET: f32 = (WINDOW_WIDTH / 2.0) - CELL_WIDTH;
 pub const MID: f32 = WINDOW_WIDTH / 2.0;
 pub const COLUMN_LOCS: [f32; 3] = [MID - CELL_WIDTH, MID, MID + CELL_WIDTH];
+pub const SPRITE_UNIFORM_SIZE: u64 = 512 * mem::size_of::<GPUSprite>() as u64;
 
-pub const ANIMATION_SPEED: f32 = 0.1;  // Adjust the speed of the animation
+
+// pub const ANIMATION_SPEED: f32 = 0.1;  // Adjust the speed of the animation
 
 async fn run(event_loop: EventLoop<()>, window: Window) {
 
@@ -56,7 +59,9 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
     let mut frame_count: u32 = 0;
     let mut timer = 0;
     let mut frame_switch = true;
+    let scroll_speed: f32 = 2.0;
     
+
     // Load the shaders from disk
     let shader = gpu.device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: None,
@@ -68,109 +73,12 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
         source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("shader2.wgsl"))),
     });
 
-    let texture_bind_group_layout =
-        gpu.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: None,
-            // It needs the first entry for the texture and the second for the sampler.
-            // This is like defining a type signature.
-            entries: &[
-                // The texture binding
-                wgpu::BindGroupLayoutEntry {
-                    // This matches the binding in the shader
-                    binding: 0,
-                    // Only available in the fragment shader
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    // It's a texture binding
-                    ty: wgpu::BindingType::Texture {
-                        // We can use it with float samplers
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        // It's being used as a 2D texture
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        // This is not a multisampled texture
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                // The sampler binding
-                wgpu::BindGroupLayoutEntry {
-                    // This matches the binding in the shader
-                    binding: 1,
-                    // Only available in the fragment shader
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    // It's a sampler
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    // No count
-                    count: None,
-                },
-            ],
-        });
+    let texture_bind_group_layout = pipeline::create_tex_bg_layout(&gpu);
+        
     // The camera binding
-    let camera_layout_entry = wgpu::BindGroupLayoutEntry {
-        // This matches the binding in the shader
-        binding: 0,
-        // Available in vertex shader
-        visibility: wgpu::ShaderStages::VERTEX,
-        // It's a buffer
-        ty: wgpu::BindingType::Buffer {
-            ty: wgpu::BufferBindingType::Uniform,
-            has_dynamic_offset: false,
-            min_binding_size: None,
-        },
-        // No count, not a buffer array binding
-        count: None,
-    };
-    let sprite_bind_group_layout = match SPRITES {
-        SpriteOption::Storage => {
-            gpu.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: None,
-                entries: &[
-                    camera_layout_entry,
-                    wgpu::BindGroupLayoutEntry {
-                        // This matches the binding in the shader
-                        binding: 1,
-                        // Available in vertex shader
-                        visibility: wgpu::ShaderStages::VERTEX,
-                        // It's a buffer
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        // No count, not a buffer array binding
-                        count: None,
-                    },
-                ],
-            })
-        }
-        SpriteOption::Uniform => {
-            gpu.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: None,
-                entries: &[
-                    camera_layout_entry,
-                    wgpu::BindGroupLayoutEntry {
-                        // This matches the binding in the shader
-                        binding: 1,
-                        // Available in vertex shader
-                        visibility: wgpu::ShaderStages::VERTEX,
-                        // It's a buffer
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: wgpu::BufferSize::new(SPRITE_UNIFORM_SIZE),
-                        },
-                        // No count, not a buffer array binding
-                        count: None,
-                    },
-                ],
-            })
-        }
-        SpriteOption::VertexBuffer => {
-            gpu.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: None,
-                entries: &[camera_layout_entry],
-            })
-        }
-    };
+    let camera_layout_entry = pipeline::create_camera_l_entry();
+
+    let sprite_bind_group_layout = pipeline::create_sprite_bind_group_layout(SPRITES, camera_layout_entry, &gpu);
     let pipeline_layout = gpu.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: None,
         bind_group_layouts: &[&sprite_bind_group_layout, &texture_bind_group_layout],
@@ -244,7 +152,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
     });
 
     gpu.surface.configure(&gpu.device, &gpu.config);
-    let path_sprites = Path::new("../content/sprites.png");
+    let path_sprites = Path::new("content/sprites.png");
     let (sprite_tex, _sprite_img) = gpu.load_texture(path_sprites, None)
         .await
         .expect("Couldn't load spritesheet texture");
@@ -277,11 +185,11 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
     });
 
     let mut sprites: Vec<GPUSprite> = sprites::create_sprites();
+    println!("{}", sprites.len());
 
     // Initialize sprite position within the grid
     let mut sprite_position: [f32; 2] = [WINDOW_WIDTH/2.0, 0.0];  
 
-    const SPRITE_UNIFORM_SIZE: u64 = 512 * mem::size_of::<GPUSprite>() as u64;
     let buffer_sprite = gpu.device.create_buffer(&wgpu::BufferDescriptor {
         label: None,
         size: if SPRITES == SpriteOption::Uniform {
@@ -321,46 +229,23 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
         }),
     };
 
-    // create background stuff
-    let path_bgnd = Path::new("../content/space.jpeg");
-    let (tex_bgnd, _over_image) = gpu.load_texture(path_bgnd,None)
-        .await
-        .expect("Couldn't load space img");
-
-    let view_bgnd = tex_bgnd.create_view(&wgpu::TextureViewDescriptor::default());
-    let sampler_bgnd = gpu.device.create_sampler(&wgpu::SamplerDescriptor::default());
-        
-    let mut texture_bind_group_bgnd = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: None,
-        layout: &texture_bind_group_layout,
-        entries: &[
-            // One for the texture, one for the sampler
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(&view_bgnd),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: wgpu::BindingResource::Sampler(&sampler_bgnd),
-            },
-        ],
-    });
-
     gpu.queue.write_buffer(&buffer_camera, 0, bytemuck::bytes_of(&camera));
     gpu.queue.write_buffer(&buffer_sprite, 0, bytemuck::cast_slice(&sprites));
+    
     let mut input = input::Input::default();
     let mut game_over = false; 
     let mut you_won = false;
     let mut show_end_screen = false;
+    let mut curr_index = 1;
 
-    let path_win = Path::new("../content/youWin.png");
+    let path_win = Path::new("content/youWin.png");
 
    //LOAD TEXTURE
    let (tex_win, _win_image) = gpu.load_texture(path_win,None)
         .await
         .expect("Couldn't load game over img");
     
-    let path_over = Path::new("../content/gameOver.png");
+    let path_over = Path::new("content/gameOver.png");
     let (tex_over, _over_image) = gpu.load_texture(path_over,None)
         .await
         .expect("Couldn't load game over img");
@@ -430,24 +315,32 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                     // let mut direction_switch_counter = 0;
                     let mut current_direction = 0; // Start with direction 0 (right)
 
-                    for sprite in sprites.iter_mut() {
+                    for i in 1..sprites.len() {
                         let random_index = rand::thread_rng().gen_range(0..COLUMN_LOCS.len());
                         let random_col = COLUMN_LOCS[random_index];
-                        sprite.screen_region[0] = random_col;
-                        sprite.screen_region[1] = 0.0; // Start at the top of the screen
+                        sprites[i].screen_region[0] = random_col;
+                        // sprites[i].screen_region[1] = 0.0; // Start at the top of the screen
+                        sprites[i].screen_region[1] -= scroll_speed;
+                        // curr_index+=1;
                     }
+                    // for sprite in sprites.iter_mut() {
+                    //     let random_index = rand::thread_rng().gen_range(0..COLUMN_LOCS.len());
+                    //     let random_col = COLUMN_LOCS[random_index];
+                    //     sprite.screen_region[0] = random_col;
+                    //     sprite.screen_region[1] = 0.0; // Start at the top of the screen
+                    // }
 
                     // Update sprite positions based on direction
-                    for i in 0..sprites.len() {
-                        if sprites[i].screen_region[1] < WINDOW_HEIGHT - CELL_HEIGHT {
-                            // Move sprites down within the valid range
-                            sprites[i].screen_region[1] += CELL_HEIGHT;
-                        } else {
-                            // Reset to the top of the screen if at the bottom
-                            sprites[i].screen_region[1] = 0.0;
-                        }
+                    // for i in 1..sprites.len() {
+                    //     if sprites[i].screen_region[1] <= WINDOW_HEIGHT - CELL_HEIGHT {
+                    //         // Move sprites down within the valid range
+                    //         sprites[i].screen_region[1] += CELL_HEIGHT;
+                    //     } else {
+                    //         // Reset to the top of the screen if at the bottom
+                    //         sprites[i].screen_region[1] = 0.0;
+                    //     }
 
-                    }
+                    // }
                     
                     // move sprite based on input
                     sprite_position = sprites::move_sprite_input(&input, sprite_position);
@@ -499,32 +392,32 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                         let view_end = tex_end.create_view(&wgpu::TextureViewDescriptor::default());
                         let sampler_end = gpu.device.create_sampler(&wgpu::SamplerDescriptor::default());
                             
-                        texture_bind_group_bgnd = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                            label: None,
-                            layout: &texture_bind_group_layout,
-                            entries: &[
-                                // One for the texture, one for the sampler
-                                wgpu::BindGroupEntry {
-                                    binding: 0,
-                                    resource: wgpu::BindingResource::TextureView(&view_end),
-                                },
-                                wgpu::BindGroupEntry {
-                                    binding: 1,
-                                    resource: wgpu::BindingResource::Sampler(&sampler_end),
-                                },
-                            ],
-                        });
+                        // texture_bind_group_bgnd = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        //     label: None,
+                        //     layout: &texture_bind_group_layout,
+                        //     entries: &[
+                        //         // One for the texture, one for the sampler
+                        //         wgpu::BindGroupEntry {
+                        //             binding: 0,
+                        //             resource: wgpu::BindingResource::TextureView(&view_end),
+                        //         },
+                        //         wgpu::BindGroupEntry {
+                        //             binding: 1,
+                        //             resource: wgpu::BindingResource::Sampler(&sampler_end),
+                        //         },
+                        //     ],
+                        // });
 
                         // Draw end game screen
                         rpass.set_pipeline(&render_pipeline_full);
-                        rpass.set_bind_group(0, &texture_bind_group_bgnd, &[]);
+                        // rpass.set_bind_group(0, &texture_bind_group_bgnd, &[]);
                         rpass.draw(0..6, 0..1);
                     } else {
                         
-                        // Draw space background
-                        rpass.set_pipeline(&render_pipeline_full);
-                        rpass.set_bind_group(0, &texture_bind_group_bgnd, &[]);
-                        rpass.draw(0..6, 0..1);
+                        // // Draw space background
+                        // rpass.set_pipeline(&render_pipeline_full);
+                        // rpass.set_bind_group(0, &texture_bind_group_bgnd, &[]);
+                        // rpass.draw(0..6, 0..1);
 
                         // Calculate the index of the current frame in the animation loop
                         // let current_frame: usize = (frame_count as f32 * ANIMATION_SPEED) as usize % 2;
